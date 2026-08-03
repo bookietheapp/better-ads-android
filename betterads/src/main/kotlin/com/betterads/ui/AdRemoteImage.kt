@@ -8,7 +8,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
 import com.betterads.model.AdImageUrls
 
@@ -29,13 +31,19 @@ fun AdRemoteImage(
     }
 
     val context = LocalContext.current
-    AsyncImage(
+    SubcomposeAsyncImage(
         model = ImageRequest.Builder(context)
             .data(url)
-            .crossfade(true)
+            // Avoid crossfade flash when the host recomposes / remounts the slot.
+            .crossfade(false)
             .build(),
         contentDescription = contentDescription,
         contentScale = contentScale,
         modifier = modifier.size(size),
-    )
+    ) {
+        when (painter.state) {
+            is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+            else -> placeholder()
+        }
+    }
 }

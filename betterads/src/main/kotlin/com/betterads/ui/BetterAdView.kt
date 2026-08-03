@@ -11,6 +11,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.betterads.BetterAdsClient
 import com.betterads.model.AdCtaAction
 import com.betterads.model.AdFormat
@@ -18,6 +21,13 @@ import com.betterads.model.AdModel
 
 /**
  * Ready-to-display ad view for Bookie-parity formats (`compact` / `banner` / `card`).
+ *
+ * Lifecycle (all owned by the SDK — hosts only place this composable):
+ * - Revalidates with the serve API when the slot is in a STARTED lifecycle (first show
+ *   and returning to the screen). No host refresh tokens.
+ * - Keeps the current creative on screen while fetching (no flash).
+ * - The API decides whether to return the same or a new creative; UI swaps only
+ *   when the payload changes.
  *
  * The SDK fetches, renders, tracks impression/click, and opens CTA destinations.
  * Host callbacks are observation-only (e.g. Firebase bridge).
@@ -74,9 +84,13 @@ private fun BetterAdContent(
         AdViewModel.forFormat(client, format)
     }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(viewModel) {
-        viewModel.loadIfNeeded()
+    // SDK-owned revalidation — host apps never pass refresh epochs.
+    LaunchedEffect(lifecycleOwner, viewModel, format) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.revalidate()
+        }
     }
 
     when (val state = viewModel.state) {

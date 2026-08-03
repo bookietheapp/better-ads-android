@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -62,11 +62,12 @@ fun BannerAdLayout(
         )
 
         Column(
+            // Don't fillMaxHeight — that compresses description into leftover space (~2 lines).
             modifier = Modifier
-                .fillMaxHeight()
+                .align(Alignment.TopStart)
                 .width(maxWidth * 0.5f)
-                .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.Start,
         ) {
             BannerHeadline(ad = ad, textColor = textColor)
@@ -80,7 +81,10 @@ fun BannerAdLayout(
                     emphasisFontFamily = FontFamily.Serif,
                 ),
                 letterSpacing = (-0.28).sp,
-                lineHeight = 20.sp,
+                lineHeight = DESCRIPTION_LINE_HEIGHT,
+                maxLines = DESCRIPTION_MAX_LINES,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.heightIn(min = DESCRIPTION_MIN_HEIGHT),
             )
             Button(
                 onClick = onCta,
@@ -89,6 +93,7 @@ fun BannerAdLayout(
                     contentColor = buttonTitleColor,
                 ),
                 shape = RoundedCornerShape(50),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 modifier = Modifier
                     .widthIn(min = 102.dp)
                     .height(31.dp),
@@ -98,6 +103,7 @@ fun BannerAdLayout(
                     fontSize = AdTypography.bodyHeavy13,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -111,17 +117,20 @@ fun BannerAdLayout(
 
 @Composable
 private fun BannerHeadline(ad: AdModel, textColor: Color) {
+    val headline = ad.headline.trim()
     val hasIcon = ad.images.icon.urlFor(2f) != null
     if (hasIcon) {
+        // Keep a blank wordmark slot while loading / if the asset fails (e.g. SVG).
         AdRemoteImage(
             urls = ad.images.icon,
             size = DpSize(109.dp, 17.dp),
-            contentDescription = ad.headline,
+            contentDescription = headline,
             contentScale = ContentScale.Fit,
+            placeholder = {},
         )
-    } else {
+    } else if (headline.isNotEmpty()) {
         Text(
-            text = ad.headline,
+            text = headline,
             color = textColor,
             fontSize = AdTypography.serif14,
             fontFamily = FontFamily.Serif,
@@ -129,8 +138,14 @@ private fun BannerHeadline(ad: AdModel, textColor: Color) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    } else {
+        Box(modifier = Modifier.height(17.dp))
     }
 }
+
+private val DESCRIPTION_LINE_HEIGHT = 20.sp
+private const val DESCRIPTION_MAX_LINES = 3
+private val DESCRIPTION_MIN_HEIGHT = 60.dp
 
 @Preview(showBackground = true)
 @Composable

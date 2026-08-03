@@ -9,8 +9,9 @@ Matches the iOS `BetterAds` Swift package API shape.
 | `BetterAdsContentMode` | Behavior |
 |------------------------|----------|
 | `FIXTURE` (**spike default**) | Built-in sample creatives, no network / no base URL / no auth |
-| `BOOKIE_GET_AD` | Interim: `GET /getAd?size={format}` |
-| `DEDICATED_API` | Future: `GET /ads/{format}` |
+| `SERVE_V1` (**current remote**) | SDK-owned serve endpoint (`size` + optional `app=` via `appName` while unauthenticated) |
+| `BOOKIE_GET_AD` | Legacy: `GET /getAd?size={format}` — host `baseUrl` |
+| `DEDICATED_API` | Future: `GET /ads/{format}` — host `baseUrl` |
 
 ## Formats (Bookie parity)
 
@@ -40,7 +41,27 @@ ProvideBetterAdsClient(ads) {
 
 Or pass `client =` explicitly to `BetterAdView`.
 
-When the ads backend is ready, switch to a remote configuration (`apiKey` + `baseUrl`) instead of fixture mode. The same key is sent as `X-API-Key`.
+Switch to `SERVE_V1` for production serve. Hosts never configure the fetch URL. `X-API-Key` is sent when `apiKey` is non-empty; today the endpoint is open — keep the key ready and drop `appName` once auth identifies the host.
+
+```kotlin
+// Application.onCreate — enables persisted device_id
+BetterAds.initialize(this)
+
+val client = BetterAdsClient(
+    configuration = BetterAdsConfiguration(
+        // Empty until the backend enforces auth; then omit appName — key identifies the app.
+        apiKey = "",
+        contentMode = BetterAdsContentMode.SERVE_V1,
+        appName = "Bookie", // transitional; remove once API key auth ships
+        userId = userId, // optional; or call client.setUserId later
+    ),
+)
+
+// On login / logout — only host identity concern:
+client.setUserId(loggedInUserId) // or null when logged out / guest
+```
+
+The SDK owns `device_id` (persisted after `BetterAds.initialize`) and `session_id` (rotates on logout when you clear user id). See [`docs/IDENTITY_AND_ANALYTICS.md`](../docs/IDENTITY_AND_ANALYTICS.md).
 
 ### Tracking + CTA open (owned by the view)
 

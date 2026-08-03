@@ -3,6 +3,7 @@ package com.betterads.network
 import com.betterads.BetterAdsAuthProviding
 import com.betterads.BetterAdsConfiguration
 import com.betterads.BetterAdsContentMode
+import com.betterads.BetterAdsIdentityStore
 import com.betterads.model.AdModel
 import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
@@ -60,6 +61,7 @@ class UrlConnectionHttpClient : HttpClient {
 
 internal class AdsApiClient(
     private val configuration: BetterAdsConfiguration,
+    private val identity: BetterAdsIdentityStore,
     private val httpClient: HttpClient,
     private val authProvider: BetterAdsAuthProviding? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = false },
@@ -68,6 +70,13 @@ internal class AdsApiClient(
         val (path, query) = when (configuration.contentMode) {
             BetterAdsContentMode.BOOKIE_GET_AD ->
                 "/getAd" to mapOf("size" to type.rawValue)
+            BetterAdsContentMode.SERVE_V1 -> {
+                // Transitional: backend resolves the app from API key once auth ships.
+                val items = linkedMapOf<String, String>()
+                configuration.appName?.takeIf { it.isNotEmpty() }?.let { items["app"] = it }
+                items["size"] = type.rawValue
+                "/api/v1/serve" to items
+            }
             BetterAdsContentMode.DEDICATED_API ->
                 "/ads/${type.rawValue}" to emptyMap()
             BetterAdsContentMode.FIXTURE ->
@@ -93,11 +102,13 @@ internal class AdsApiClient(
     }
 
     suspend fun postImpression(type: AdType) {
+        val id = identity.snapshot()
         post(
             path = "/ads/${type.rawValue}/impressions",
             body = AnalyticsEnvelope(
-                sessionId = configuration.sessionId,
-                userId = configuration.userId,
+                deviceId = id.deviceId,
+                sessionId = id.sessionId,
+                userId = id.userId,
                 locale = configuration.locale.toLanguageTag(),
                 ctaValue = null,
             ),
@@ -105,11 +116,13 @@ internal class AdsApiClient(
     }
 
     suspend fun postClick(type: AdType, ctaValue: String) {
+        val id = identity.snapshot()
         post(
             path = "/ads/${type.rawValue}/clicks",
             body = AnalyticsEnvelope(
-                sessionId = configuration.sessionId,
-                userId = configuration.userId,
+                deviceId = id.deviceId,
+                sessionId = id.sessionId,
+                userId = id.userId,
                 locale = configuration.locale.toLanguageTag(),
                 ctaValue = ctaValue,
             ),
@@ -141,7 +154,7 @@ internal class AdsApiClient(
         extraHeaders: Map<String, String> = emptyMap(),
         body: ByteArray? = null,
     ): HttpRequest {
-        val base = configuration.baseUrl?.trimEnd('/')
+        val base = configuration.resolvedBaseUrl()?.trimEnd('/')
             ?: throw BetterAdsError.InvalidBaseUrl
         val queryString = if (query.isEmpty()) {
             ""
@@ -174,6 +187,7 @@ internal class AdsApiClient(
 
 @Serializable
 internal data class AnalyticsEnvelope(
+    @SerialName("device_id") val deviceId: String? = null,
     @SerialName("session_id") val sessionId: String? = null,
     @SerialName("user_id") val userId: String? = null,
     val locale: String,

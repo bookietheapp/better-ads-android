@@ -13,6 +13,10 @@ import com.betterads.model.BetterAdsError
 /**
  * Loads ad content and owns impression / click reporting for a single placement.
  * Matches iOS `AdViewModel`.
+ *
+ * Creative selection is owned by the serve API: revalidate on appear / host surface
+ * refresh, keep the current creative while fetching, and only swap UI when the
+ * payload changes.
  */
 class AdViewModel(
     private val client: BetterAdsClient,
@@ -27,28 +31,59 @@ class AdViewModel(
     }
 
     var state: State by mutableStateOf(
-        if (preloadedAd != null) State.Loaded(preloadedAd) else State.Idle,
+        when {
+            preloadedAd != null -> State.Loaded(preloadedAd)
+            // Paint cached creative immediately so remounts don't flash a blank loading slot.
+            else -> client.cachedAd(type)?.let { State.Loaded(it) } ?: State.Idle
+        },
     )
         private set
 
     private var didTrackImpression = false
+    private var isRevalidating = false
 
     val ad: AdModel?
         get() = (state as? State.Loaded)?.ad
 
-    suspend fun loadIfNeeded() {
-        when (state) {
-            State.Loading, is State.Loaded -> return
-            State.Idle, is State.Failed -> Unit
-        }
-        state = State.Loading
-        state = try {
-            State.Loaded(client.fetchAd(type))
-        } catch (e: Exception) {
-            val message = (e as? BetterAdsError)?.message ?: e.message ?: e.toString()
-            State.Failed(message)
+    /**
+     * Asks the serve API whether this slot should keep or replace its creative.
+     *
+     * Keeps the current creative visible while fetching (no flash).
+     * Updates state only when the API returns a different payload.
+     * Resets impression eligibility when `campaignId` changes.
+     */
+    suspend fun revalidate() {
+        if (isRevalidating) return
+        isRevalidating = true
+        try {
+            val previous = ad
+            val hadContent = previous != null
+            // Only show the blank loading placeholder when we have nothing to display yet.
+            if (!hadContent) {
+                state = State.Loading
+            }
+
+            try {
+                applyServeResult(previous = previous, fresh = client.fetchAd(type))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Lazy lists often cancel the first load. Leave idle so recomposition can retry.
+                if (!hadContent) {
+                    state = State.Idle
+                }
+                throw e
+            } catch (e: Exception) {
+                if (!hadContent) {
+                    val message = (e as? BetterAdsError)?.message ?: e.message ?: e.toString()
+                    state = State.Failed(message)
+                }
+            }
+        } finally {
+            isRevalidating = false
         }
     }
+
+    /** Backward-compatible alias used by older call sites / tests. */
+    suspend fun loadIfNeeded() = revalidate()
 
     /** @return true when an impression was newly tracked. */
     fun trackImpressionIfNeeded(): Boolean {
@@ -62,6 +97,14 @@ class AdViewModel(
         val current = ad ?: return null
         client.trackClick(type, current.cta.action.value)
         return current.cta.action
+    }
+
+    private fun applyServeResult(previous: AdModel?, fresh: AdModel) {
+        if (previous == fresh) return
+        if (previous?.campaignId != fresh.campaignId) {
+            didTrackImpression = false
+        }
+        state = State.Loaded(fresh)
     }
 
     companion object {
