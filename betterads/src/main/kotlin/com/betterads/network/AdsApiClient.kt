@@ -1,9 +1,12 @@
 package com.betterads.network
 
+import android.util.Log
 import com.betterads.BetterAdsAuthProviding
 import com.betterads.BetterAdsConfiguration
 import com.betterads.BetterAdsContentMode
+import com.betterads.BetterAdsEndpoints
 import com.betterads.BetterAdsIdentityStore
+import com.betterads.model.AdEvent
 import com.betterads.model.AdModel
 import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
@@ -84,6 +87,7 @@ internal class AdsApiClient(
         }
 
         val request = makeRequest("GET", path, query)
+        Log.d("BetterAds", "GET ${request.url}")
         val response = httpClient.send(request)
         return when (response.code) {
             in 200..299 -> {
@@ -101,46 +105,41 @@ internal class AdsApiClient(
         }
     }
 
-    suspend fun postImpression(type: AdType) {
-        val id = identity.snapshot()
-        post(
-            path = "/ads/${type.rawValue}/impressions",
-            body = AnalyticsEnvelope(
-                deviceId = id.deviceId,
-                sessionId = id.sessionId,
-                userId = id.userId,
-                locale = configuration.locale.toLanguageTag(),
-                ctaValue = null,
-            ),
-        )
+    private val eventsJson: Json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
     }
 
-    suspend fun postClick(type: AdType, ctaValue: String) {
-        val id = identity.snapshot()
-        post(
-            path = "/ads/${type.rawValue}/clicks",
-            body = AnalyticsEnvelope(
-                deviceId = id.deviceId,
-                sessionId = id.sessionId,
-                userId = id.userId,
-                locale = configuration.locale.toLanguageTag(),
-                ctaValue = ctaValue,
-            ),
-        )
-    }
-
-    private suspend fun post(path: String, body: AnalyticsEnvelope) {
-        val bytes = json.encodeToString(AnalyticsEnvelope.serializer(), body).toByteArray()
+    suspend fun postEvents(events: List<AdEvent>): EventsPostResult {
+        val body = EventsRequestBody(events = events)
+        val bytes = eventsJson.encodeToString(EventsRequestBody.serializer(), body).toByteArray()
         val request = makeRequest(
             method = "POST",
-            path = path,
+            path = BetterAdsEndpoints.EVENTS_PATH,
             query = emptyMap(),
             extraHeaders = mapOf("Content-Type" to "application/json"),
             body = bytes,
         )
         val response = httpClient.send(request)
-        if (response.code !in 200..299) {
-            throw BetterAdsError.HttpStatus(
+        return when (response.code) {
+            in 200..299 -> {
+                try {
+                    val decoded = json.decodeFromString(EventsApiResponse.serializer(), response.body.decodeToString())
+                    EventsPostResult(
+                        accepted = decoded.accepted,
+                        rejected = decoded.rejected.map {
+                            RejectedEventItem(
+                                index = it.index,
+                                eventId = it.eventId,
+                                errors = it.errors.orEmpty(),
+                            )
+                        },
+                    )
+                } catch (e: Exception) {
+                    throw BetterAdsError.DecodingFailed(e.message ?: e.toString())
+                }
+            }
+            else -> throw BetterAdsError.HttpStatus(
                 response.code,
                 response.body.decodeToString().ifBlank { null },
             )
@@ -186,10 +185,20 @@ internal class AdsApiClient(
 }
 
 @Serializable
-internal data class AnalyticsEnvelope(
-    @SerialName("device_id") val deviceId: String? = null,
-    @SerialName("session_id") val sessionId: String? = null,
-    @SerialName("user_id") val userId: String? = null,
-    val locale: String,
-    @SerialName("cta_value") val ctaValue: String? = null,
+private data class EventsRequestBody(
+    val events: List<AdEvent>,
+)
+
+@Serializable
+private data class EventsApiResponse(
+    val ok: Boolean,
+    val accepted: Int,
+    val rejected: List<RejectedEventResponse> = emptyList(),
+)
+
+@Serializable
+private data class RejectedEventResponse(
+    val index: Int,
+    @SerialName("event_id") val eventId: String? = null,
+    val errors: List<String>? = null,
 )

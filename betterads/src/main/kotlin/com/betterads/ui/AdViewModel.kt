@@ -66,9 +66,13 @@ class AdViewModel(
             try {
                 applyServeResult(previous = previous, fresh = client.fetchAd(type))
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Lazy lists often cancel the first load. Leave idle so recomposition can retry.
+                // Lazy lists may cancel after fetch; creative is still in the client cache.
                 if (!hadContent) {
-                    state = State.Idle
+                    client.cachedAd(type)?.let { cached ->
+                        state = State.Loaded(cached)
+                    } ?: run {
+                        state = State.Idle
+                    }
                 }
                 throw e
             } catch (e: Exception) {
@@ -88,14 +92,15 @@ class AdViewModel(
     /** @return true when an impression was newly tracked. */
     fun trackImpressionIfNeeded(): Boolean {
         if (state !is State.Loaded || didTrackImpression) return false
+        val current = ad ?: return false
         didTrackImpression = true
-        client.trackImpression(type)
+        client.trackImpression(current.campaignId)
         return true
     }
 
     fun handleClick(): AdCtaAction? {
         val current = ad ?: return null
-        client.trackClick(type, current.cta.action.value)
+        client.trackClick(current.campaignId, current.cta.action.value)
         return current.cta.action
     }
 

@@ -77,6 +77,7 @@ data class BetterAdsConfiguration(
 /** SDK-owned ads backend endpoints. Host apps never configure these URLs. */
 internal object BetterAdsEndpoints {
     const val SERVE_V1_BASE_URL = "https://us-central1-better-ads-501813.cloudfunctions.net"
+    const val EVENTS_PATH = "/api/v1/events"
 }
 
 /** Optional auth for remote modes (e.g. Bearer for legacy getAd). */

@@ -29,6 +29,7 @@ dependencies {
     // Not always present in host catalogs — keep explicit coordinates.
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation(libs.coroutines.android)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 

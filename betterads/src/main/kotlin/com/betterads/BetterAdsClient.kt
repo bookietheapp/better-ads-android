@@ -4,15 +4,20 @@ import com.betterads.model.AdFormat
 import com.betterads.model.AdModel
 import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
+import com.betterads.model.AdEvent
+import com.betterads.model.AdEventType
+import com.betterads.network.AdEventFlushCoordinator
+import com.betterads.network.AdEventQueue
 import com.betterads.network.AdsApiClient
 import com.betterads.network.HttpClient
+import com.betterads.network.InMemoryAdEventStore
+import com.betterads.network.SharedPreferencesAdEventStore
 import com.betterads.network.UrlConnectionHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.Locale
-import java.util.logging.Level
 import java.util.logging.Logger
 
 internal fun interface BetterAdsContentProviding {
@@ -42,13 +47,14 @@ internal class FixtureBetterAdsContentProvider : BetterAdsContentProviding {
  * Hosts call [setUserId] on login/logout.
  */
 class BetterAdsClient private constructor(
+    private val configuration: BetterAdsConfiguration,
     private val api: AdsApiClient,
     private val identity: BetterAdsIdentityStore,
+    private val eventQueue: AdEventQueue,
+    private val flushCoordinator: AdEventFlushCoordinator?,
     private val contentProvider: BetterAdsContentProviding,
     private val contentMode: BetterAdsContentMode,
     private val adCache: AdResponseCache = AdResponseCache(),
-    private val analyticsScope: CoroutineScope =
-        CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val logger = Logger.getLogger("com.betterads.BetterAdsClient")
 
@@ -61,12 +67,33 @@ class BetterAdsClient private constructor(
             configuration = configuration,
             authProvider = authProvider,
             httpClient = httpClient ?: UrlConnectionHttpClient(),
+            eventStore = null,
+            flushScheduler = null,
+        ),
+    )
+
+    internal constructor(
+        configuration: BetterAdsConfiguration,
+        authProvider: BetterAdsAuthProviding?,
+        httpClient: HttpClient,
+        eventStore: com.betterads.network.AdEventStore?,
+        flushScheduler: com.betterads.network.AdEventFlushScheduler?,
+    ) : this(
+        create(
+            configuration = configuration,
+            authProvider = authProvider,
+            httpClient = httpClient,
+            eventStore = eventStore,
+            flushScheduler = flushScheduler,
         ),
     )
 
     private constructor(parts: Created) : this(
+        configuration = parts.configuration,
         api = parts.api,
         identity = parts.identity,
+        eventQueue = parts.eventQueue,
+        flushCoordinator = parts.flushCoordinator,
         contentProvider = parts.contentProvider,
         contentMode = parts.contentMode,
     )
@@ -96,24 +123,50 @@ class BetterAdsClient private constructor(
 
     suspend fun fetchAd(format: AdFormat): AdModel = fetchAd(AdType(format))
 
-    fun trackImpression(adType: AdType) {
+    fun trackImpression(campaignId: String) {
         if (contentMode == BetterAdsContentMode.FIXTURE) return
-        analyticsScope.launch {
-            runCatching { api.postImpression(adType) }
-                .onFailure {
-                    logger.log(Level.WARNING, "Impression tracking failed for ${adType.rawValue}", it)
-                }
+        val campaignIdInt = parseCampaignId(campaignId)
+        if (campaignIdInt == null) {
+            logger.warning("Skipping impression — invalid campaign_id: $campaignId")
+            return
         }
+        val id = identity.snapshot()
+        eventQueue.enqueue(
+            AdEvent(
+                type = AdEventType.IMPRESSION,
+                campaignId = campaignIdInt,
+                deviceId = id.deviceId,
+                sessionId = id.sessionId,
+                userId = id.userId,
+                locale = configuration.locale.toLanguageTag(),
+            ),
+        )
     }
 
-    fun trackClick(adType: AdType, ctaValue: String) {
+    fun trackClick(campaignId: String, ctaValue: String) {
         if (contentMode == BetterAdsContentMode.FIXTURE) return
-        analyticsScope.launch {
-            runCatching { api.postClick(adType, ctaValue) }
-                .onFailure {
-                    logger.log(Level.WARNING, "Click tracking failed for ${adType.rawValue}", it)
-                }
+        val campaignIdInt = parseCampaignId(campaignId)
+        if (campaignIdInt == null) {
+            logger.warning("Skipping click — invalid campaign_id: $campaignId")
+            return
         }
+        val id = identity.snapshot()
+        eventQueue.enqueue(
+            AdEvent(
+                type = AdEventType.CLICK,
+                campaignId = campaignIdInt,
+                deviceId = id.deviceId,
+                sessionId = id.sessionId,
+                userId = id.userId,
+                locale = configuration.locale.toLanguageTag(),
+                ctaValue = ctaValue,
+            ),
+        )
+    }
+
+    private fun parseCampaignId(raw: String): Int? {
+        val value = raw.trim().toIntOrNull() ?: return null
+        return value.takeIf { it > 0 }
     }
 
     companion object {
@@ -134,6 +187,8 @@ class BetterAdsClient private constructor(
             configuration: BetterAdsConfiguration,
             authProvider: BetterAdsAuthProviding?,
             httpClient: HttpClient,
+            eventStore: com.betterads.network.AdEventStore?,
+            flushScheduler: com.betterads.network.AdEventFlushScheduler?,
         ): Created {
             val identity = BetterAdsIdentityStore(
                 deviceId = configuration.deviceId,
@@ -146,6 +201,25 @@ class BetterAdsClient private constructor(
                 httpClient = httpClient,
                 authProvider = authProvider,
             )
+            val resolvedEventStore = eventStore
+                ?: BetterAds.appContext?.let { SharedPreferencesAdEventStore(it) }
+                ?: InMemoryAdEventStore()
+            val eventQueue = AdEventQueue(
+                store = resolvedEventStore,
+                postEvents = { events -> api.postEvents(events) },
+                flushScheduler = flushScheduler ?: { operation ->
+                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { operation() }
+                    Unit
+                },
+            )
+            val flushCoordinator = if (configuration.contentMode != BetterAdsContentMode.FIXTURE) {
+                AdEventFlushCoordinator(
+                    queue = eventQueue,
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+                ).also { it.start() }
+            } else {
+                null
+            }
             val contentProvider: BetterAdsContentProviding = when (configuration.contentMode) {
                 BetterAdsContentMode.FIXTURE -> FixtureBetterAdsContentProvider()
                 BetterAdsContentMode.BOOKIE_GET_AD,
@@ -154,8 +228,11 @@ class BetterAdsClient private constructor(
                 -> HttpBetterAdsContentProvider(api)
             }
             return Created(
+                configuration = configuration,
                 api = api,
                 identity = identity,
+                eventQueue = eventQueue,
+                flushCoordinator = flushCoordinator,
                 contentProvider = contentProvider,
                 contentMode = configuration.contentMode,
             )
@@ -163,8 +240,11 @@ class BetterAdsClient private constructor(
     }
 
     private data class Created(
+        val configuration: BetterAdsConfiguration,
         val api: AdsApiClient,
         val identity: BetterAdsIdentityStore,
+        val eventQueue: AdEventQueue,
+        val flushCoordinator: AdEventFlushCoordinator?,
         val contentProvider: BetterAdsContentProviding,
         val contentMode: BetterAdsContentMode,
     )

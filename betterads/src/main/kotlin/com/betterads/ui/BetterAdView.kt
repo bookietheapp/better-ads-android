@@ -1,10 +1,11 @@
 package com.betterads.ui
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -12,8 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.betterads.BetterAdsClient
 import com.betterads.model.AdCtaAction
 import com.betterads.model.AdFormat
@@ -49,17 +52,11 @@ fun BetterAdView(
     client: BetterAdsClient? = null,
     onImpression: ((AdModel) -> Unit)? = null,
     onClick: ((AdCtaAction) -> Unit)? = null,
+    /** `true` when a creative is shown; `false` when serve failed with no cached creative. */
+    onAvailabilityChanged: ((Boolean) -> Unit)? = null,
 ) {
     val resolvedClient = client ?: LocalBetterAdsClient.current
     if (resolvedClient == null) {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .then(
-                    if (format == AdFormat.BANNER) Modifier.height(AdLayoutMetrics.bannerHeight)
-                    else Modifier,
-                ),
-        )
         return
     }
 
@@ -68,6 +65,7 @@ fun BetterAdView(
         format = format,
         onImpression = onImpression,
         onClick = onClick,
+        onAvailabilityChanged = onAvailabilityChanged,
         modifier = modifier,
     )
 }
@@ -78,6 +76,7 @@ private fun BetterAdContent(
     format: AdFormat,
     onImpression: ((AdModel) -> Unit)?,
     onClick: ((AdCtaAction) -> Unit)?,
+    onAvailabilityChanged: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val viewModel = remember(client, format) {
@@ -87,29 +86,52 @@ private fun BetterAdContent(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // SDK-owned revalidation — host apps never pass refresh epochs.
-    LaunchedEffect(lifecycleOwner, viewModel, format) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+    LaunchedEffect(client, format) {
+        viewModel.revalidate()
+    }
+
+    LaunchedEffect(viewModel.state, lifecycleOwner) {
+        if (viewModel.state is AdViewModel.State.Idle &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        ) {
             viewModel.revalidate()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START &&
+                viewModel.state !is AdViewModel.State.Loaded &&
+                viewModel.state !is AdViewModel.State.Failed
+            ) {
+                lifecycleOwner.lifecycleScope.launch {
+                    viewModel.revalidate()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(viewModel.state) {
+        when (viewModel.state) {
+            is AdViewModel.State.Loaded -> onAvailabilityChanged?.invoke(true)
+            is AdViewModel.State.Failed -> onAvailabilityChanged?.invoke(false)
+            AdViewModel.State.Idle, AdViewModel.State.Loading -> Unit
         }
     }
 
     when (val state = viewModel.state) {
         AdViewModel.State.Idle, AdViewModel.State.Loading -> {
-            Box(
+            Spacer(
                 modifier = modifier
                     .fillMaxWidth()
-                    .then(
-                        if (format == AdFormat.BANNER) {
-                            Modifier.height(AdLayoutMetrics.bannerHeight)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .heightIn(min = AdLayoutMetrics.loadingPlaceholderMinHeight(format)),
             )
         }
 
         is AdViewModel.State.Failed -> {
-            // Match iOS: failed ads render nothing.
+            // No inventory / network error — render nothing.
         }
 
         is AdViewModel.State.Loaded -> {

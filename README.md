@@ -41,7 +41,9 @@ ProvideBetterAdsClient(ads) {
 
 Or pass `client =` explicitly to `BetterAdView`.
 
-Switch to `SERVE_V1` for production serve. Hosts never configure the fetch URL. `X-API-Key` is sent when `apiKey` is non-empty; today the endpoint is open — keep the key ready and drop `appName` once auth identifies the host.
+Switch to `SERVE_V1` for production serve. Hosts never configure the fetch URL. Send the NativeOS App API key (`nos_…`) as `apiKey`; the SDK attaches `X-Api-Key` on serve and events. Keep `appName` aligned with the Portal App until key-only auth ships.
+
+Events batch to `POST /api/v1/events` with local queue, retry, and flush every ~30s + on background. See [`docs/IDENTITY_AND_ANALYTICS.md`](../docs/IDENTITY_AND_ANALYTICS.md) and [`docs/BOOKIE_INTEGRATION.md`](../docs/BOOKIE_INTEGRATION.md).
 
 ```kotlin
 // Application.onCreate — enables persisted device_id
@@ -49,11 +51,10 @@ BetterAds.initialize(this)
 
 val client = BetterAdsClient(
     configuration = BetterAdsConfiguration(
-        // Empty until the backend enforces auth; then omit appName — key identifies the app.
-        apiKey = "",
+        apiKey = BuildConfig.NATIVEOS_APP_API_KEY, // nos_… — NOT in git
         contentMode = BetterAdsContentMode.SERVE_V1,
-        appName = "Bookie", // transitional; remove once API key auth ships
-        userId = userId, // optional; or call client.setUserId later
+        appName = "Bookie", // must match Portal App
+        userId = userId,    // optional; or call client.setUserId later
     ),
 )
 
@@ -67,8 +68,8 @@ The SDK owns `device_id` (persisted after `BetterAds.initialize`) and `session_i
 
 | Event | When |
 |-------|------|
-| Impression | Loaded creative appears — once per view model (skipped in fixture mode) |
-| Click | CTA tapped → analytics POST when remote (skipped in fixture), then SDK opens |
+| Impression | Loaded creative appears — once per campaign (skipped in fixture mode) |
+| Click | CTA tapped → batched event POST when remote (skipped in fixture), then SDK opens |
 | Open | `URL` → Custom Tabs; `DEEPLINK` → `ACTION_VIEW` |
 
 Host `onClick` / `onImpression` are observation-only.

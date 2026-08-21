@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.betterads.model.AdFormat
 
 /** Color + copy helpers — mirrors iOS `AdFormatting` / Bookie `PlacementAdFormatting`. */
 object AdFormatting {
@@ -87,6 +88,14 @@ object AdLayoutMetrics {
     const val advertisementLabelBackgroundOpacity = 0.72f
     val cornerRadius: Dp = 12.dp
     val bannerHeight: Dp = 164.dp
+
+    /** Keeps lazy host lists from skipping the slot before serve completes. */
+    fun loadingPlaceholderMinHeight(format: AdFormat): Dp = when (format) {
+        AdFormat.BANNER -> bannerHeight
+        AdFormat.COMPACT -> 72.dp
+        AdFormat.CARD -> 200.dp
+        AdFormat.INTERSTITIAL -> 0.dp
+    }
 }
 
 object AdTypography {
