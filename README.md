@@ -80,7 +80,32 @@ Host `onClick` / `onImpression` are observation-only.
 ./gradlew :betterads:assembleDebug :betterads:testDebugUnitTest
 ```
 
-## Consume from a host app (local path)
+## Consume from a host app
+
+Repository: [github.com/bookietheapp/better-ads-android](https://github.com/bookietheapp/better-ads-android)
+
+### Git submodule (recommended until Maven publish)
+
+From the host app repo root:
+
+```bash
+git submodule add https://github.com/bookietheapp/better-ads-android.git external/better-ads-android
+git submodule update --init --recursive
+```
+
+```kotlin
+// settings.gradle.kts
+include(":betterads")
+project(":betterads").projectDir =
+    file("external/better-ads-android/betterads")
+
+// module build.gradle.kts
+implementation(project(":betterads"))
+```
+
+Pin the submodule to a release tag when cutting host app releases.
+
+### Local path (SDK development)
 
 ```kotlin
 // settings.gradle.kts
