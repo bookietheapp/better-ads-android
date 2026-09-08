@@ -1,17 +1,13 @@
 package com.betterads
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.sp
 import com.betterads.model.AdEvent
 import com.betterads.model.AdEventType
 import com.betterads.model.AdFormat
-import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
 import com.betterads.network.HttpClient
 import com.betterads.network.HttpRequest
 import com.betterads.network.HttpResponse
 import com.betterads.network.InMemoryAdEventStore
-import com.betterads.ui.AdFormatting
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -29,8 +25,8 @@ class BetterAdsClientFixtureTest {
         val client = BetterAdsClient.fixture(apiKey = "ba_test_key")
         val ad = client.fetchAd(AdFormat.BANNER)
         assertEquals("banner", ad.size)
-        assertEquals("Sample Brand", ad.brand)
-        assertTrue(ad.cta.action.value.isNotBlank())
+        assertEquals("1", ad.adId)
+        assertTrue(ad.ctaLink.isNotBlank())
     }
 
     @Test
@@ -55,23 +51,17 @@ class BetterAdsClientFixtureTest {
 class BetterAdsClientServeV1Test {
     private val sampleAdJson = """
         {
-          "campaignId": "42",
+          "adId": "42",
+          "campaignId": "10",
           "size": "banner",
-          "brand": "Sample Brand",
-          "backgroundColor": "#CC96FF",
-          "textColor": "#000000",
-          "headline": "Sample Brand",
-          "description": "60 days free",
           "images": {
-            "hero": { "1x": "https://cdn.example.com/hero.png", "2x": "", "3x": "" },
-            "icon": { "1x": "https://cdn.example.com/icon.png", "2x": "", "3x": "" }
+            "hero": {
+              "1x": "https://cdn.example.com/hero.png",
+              "2x": "https://cdn.example.com/diana.k@example.org",
+              "3x": "https://cdn.example.com/james.b@example.com"
+            }
           },
-          "cta": {
-            "title": "Learn more",
-            "ctaButtonColor": "#FFFFFF",
-            "ctaTitleColor": "#000000",
-            "action": { "type": "url", "value": "https://example.com/offer" }
-          }
+          "ctaLink": "https://example.com/offer"
         }
     """.trimIndent()
 
@@ -94,7 +84,7 @@ class BetterAdsClientServeV1Test {
             "${BetterAdsEndpoints.SERVE_V1_BASE_URL}/api/v1/serve?app=Bookie&size=banner",
             http.requests[0].url,
         )
-        assertNull(http.requests[0].headers["X-API-Key"])
+        assertNull(http.requests[0].headers["X-Api-Key"])
     }
 
     @Test
@@ -109,13 +99,16 @@ class BetterAdsClientServeV1Test {
             httpClient = http,
         )
 
-        client.fetchAd(AdFormat.BANNER)
+        val ad = client.fetchAd(AdFormat.BANNER)
+        assertEquals("42", ad.adId)
+        assertEquals("10", ad.campaignId)
+        assertEquals("https://example.com/offer", ad.ctaLink)
 
         assertEquals(
             "${BetterAdsEndpoints.SERVE_V1_BASE_URL}/api/v1/serve?size=banner",
             http.requests[0].url,
         )
-        assertEquals("future-key", http.requests[0].headers["X-API-Key"])
+        assertEquals("future-key", http.requests[0].headers["X-Api-Key"])
     }
 
     @Test
@@ -182,12 +175,12 @@ class BetterAdsClientEventsTest {
             "https://ads.example.com/api/v1/events",
             http.requests[0].url,
         )
-        assertEquals("test-key", http.requests[0].headers["X-API-Key"])
+        assertEquals("test-key", http.requests[0].headers["X-Api-Key"])
 
         val body = http.requests[0].body?.decodeToString().orEmpty()
         val event = Json.parseToJsonElement(body).jsonObject["events"]!!.jsonArray.single().jsonObject
         assertEquals("impression", event["type"]!!.jsonPrimitive.content)
-        assertEquals("42", event["campaign_id"]!!.jsonPrimitive.content)
+        assertEquals("42", event["ad_id"]!!.jsonPrimitive.content)
         assertEquals("device-789", event["device_id"]!!.jsonPrimitive.content)
         assertEquals("session-123", event["session_id"]!!.jsonPrimitive.content)
         assertEquals("user-456", event["user_id"]!!.jsonPrimitive.content)
@@ -220,7 +213,7 @@ class BetterAdsClientEventsTest {
     }
 
     @Test
-    fun trackImpression_skipsInvalidCampaignId() = runTest {
+    fun trackImpression_skipsInvalidAdId() = runTest {
         val http = RecordingHttpClient(HttpResponse(200, eventsSuccessJson.toByteArray()))
         val client = BetterAdsClient(
             configuration = BetterAdsConfiguration(
@@ -254,18 +247,6 @@ class BetterAdsClientEventsTest {
     }
 }
 
-class AdFormattingTest {
-    @Test
-    fun annotatedDescription_parsesEmphasisMarkers() {
-        val text = AdFormatting.annotatedDescription(
-            text = "60 days *free* today",
-            baseColor = Color.Black,
-            baseFontSize = 14.sp,
-        )
-        assertEquals("60 days free today", text.text)
-    }
-}
-
 class AdEventTest {
     private val json = Json { encodeDefaults = false }
 
@@ -275,7 +256,7 @@ class AdEventTest {
             AdEvent.serializer(),
             AdEvent(
                 type = AdEventType.IMPRESSION,
-                campaignId = 42,
+                adId = 42,
                 deviceId = "device-789",
                 sessionId = "session-123",
                 userId = "user-456",
@@ -286,7 +267,7 @@ class AdEventTest {
         assertEquals("device-789", obj["device_id"]!!.jsonPrimitive.content)
         assertEquals("session-123", obj["session_id"]!!.jsonPrimitive.content)
         assertEquals("user-456", obj["user_id"]!!.jsonPrimitive.content)
-        assertEquals("42", obj["campaign_id"]!!.jsonPrimitive.content)
+        assertEquals("42", obj["ad_id"]!!.jsonPrimitive.content)
         assertFalse(obj.containsKey("cta_value"))
     }
 
@@ -296,7 +277,7 @@ class AdEventTest {
             AdEvent.serializer(),
             AdEvent(
                 type = AdEventType.CLICK,
-                campaignId = 42,
+                adId = 42,
                 deviceId = "device-789",
                 sessionId = "session-123",
                 userId = null,

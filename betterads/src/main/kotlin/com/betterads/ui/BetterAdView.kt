@@ -32,7 +32,7 @@ import com.betterads.model.AdModel
  * - The API decides whether to return the same or a new creative; UI swaps only
  *   when the payload changes.
  *
- * The SDK fetches, renders, tracks impression/click, and opens CTA destinations.
+ * The SDK fetches, renders the hero image, tracks impression/click, and opens `ctaLink`.
  * Host callbacks are observation-only (e.g. Firebase bridge).
  */
 val LocalBetterAdsClient = staticCompositionLocalOf<BetterAdsClient?> { null }
@@ -150,9 +150,8 @@ private fun BetterAdContent(
             }
 
             when (format) {
-                AdFormat.COMPACT -> CompactAdLayout(ad = state.ad, onCta = handleCta, modifier = modifier)
-                AdFormat.BANNER -> BannerAdLayout(ad = state.ad, onCta = handleCta, modifier = modifier)
-                AdFormat.CARD -> CardAdLayout(ad = state.ad, onCta = handleCta, modifier = modifier)
+                AdFormat.COMPACT, AdFormat.BANNER, AdFormat.CARD ->
+                    HeroAdLayout(ad = state.ad, format = format, onCta = handleCta, modifier = modifier)
                 AdFormat.INTERSTITIAL -> Unit
             }
         }

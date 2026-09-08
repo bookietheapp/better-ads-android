@@ -26,7 +26,7 @@ enum class BetterAdsContentMode {
  * [SERVE_V1][BetterAdsContentMode.SERVE_V1] owns its fetch URL inside the SDK — hosts never pass a base URL
  * for that mode. [baseUrl] is only for legacy [BOOKIE_GET_AD][BetterAdsContentMode.BOOKIE_GET_AD] /
  * [DEDICATED_API][BetterAdsContentMode.DEDICATED_API].
- * [apiKey] is sent as `X-API-Key` when non-empty (optional today; required once the backend enforces auth).
+ * [apiKey] is sent as `X-Api-Key` when non-empty (required for Serve and Events).
  *
  * Identity defaults (recommended):
  * - omit [deviceId] → SDK persists an install UUID after [BetterAds.initialize]

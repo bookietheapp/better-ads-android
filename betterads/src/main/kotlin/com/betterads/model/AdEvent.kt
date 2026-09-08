@@ -21,7 +21,7 @@ enum class AdEventType {
 internal data class AdEvent(
     @SerialName("event_id") val eventId: String = UUID.randomUUID().toString(),
     val type: AdEventType,
-    @SerialName("campaign_id") val campaignId: Int,
+    @SerialName("ad_id") val adId: Int,
     @SerialName("occurred_at") val occurredAt: String = AdEventFormatters.now(),
     @SerialName("device_id") val deviceId: String,
     @SerialName("session_id") val sessionId: String,
@@ -38,7 +38,3 @@ internal object AdEventFormatters {
     fun now(): String = iso8601.format(Instant.now())
 }
 
-internal fun AdModel.campaignIdAsInt(): Int? {
-    val value = campaignId.trim().toIntOrNull() ?: return null
-    return value.takeIf { it > 0 }
-}

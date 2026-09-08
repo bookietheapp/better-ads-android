@@ -123,18 +123,18 @@ class BetterAdsClient private constructor(
 
     suspend fun fetchAd(format: AdFormat): AdModel = fetchAd(AdType(format))
 
-    fun trackImpression(campaignId: String) {
+    fun trackImpression(adId: String) {
         if (contentMode == BetterAdsContentMode.FIXTURE) return
-        val campaignIdInt = parseCampaignId(campaignId)
-        if (campaignIdInt == null) {
-            logger.warning("Skipping impression — invalid campaign_id: $campaignId")
+        val adIdInt = parseAdId(adId)
+        if (adIdInt == null) {
+            logger.warning("Skipping impression — invalid ad_id: $adId")
             return
         }
         val id = identity.snapshot()
         eventQueue.enqueue(
             AdEvent(
                 type = AdEventType.IMPRESSION,
-                campaignId = campaignIdInt,
+                adId = adIdInt,
                 deviceId = id.deviceId,
                 sessionId = id.sessionId,
                 userId = id.userId,
@@ -143,18 +143,18 @@ class BetterAdsClient private constructor(
         )
     }
 
-    fun trackClick(campaignId: String, ctaValue: String) {
+    fun trackClick(adId: String, ctaValue: String) {
         if (contentMode == BetterAdsContentMode.FIXTURE) return
-        val campaignIdInt = parseCampaignId(campaignId)
-        if (campaignIdInt == null) {
-            logger.warning("Skipping click — invalid campaign_id: $campaignId")
+        val adIdInt = parseAdId(adId)
+        if (adIdInt == null) {
+            logger.warning("Skipping click — invalid ad_id: $adId")
             return
         }
         val id = identity.snapshot()
         eventQueue.enqueue(
             AdEvent(
                 type = AdEventType.CLICK,
-                campaignId = campaignIdInt,
+                adId = adIdInt,
                 deviceId = id.deviceId,
                 sessionId = id.sessionId,
                 userId = id.userId,
@@ -164,7 +164,7 @@ class BetterAdsClient private constructor(
         )
     }
 
-    private fun parseCampaignId(raw: String): Int? {
+    private fun parseAdId(raw: String): Int? {
         val value = raw.trim().toIntOrNull() ?: return null
         return value.takeIf { it > 0 }
     }

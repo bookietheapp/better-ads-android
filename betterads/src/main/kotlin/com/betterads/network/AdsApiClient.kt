@@ -1,6 +1,5 @@
 package com.betterads.network
 
-import android.util.Log
 import com.betterads.BetterAdsAuthProviding
 import com.betterads.BetterAdsConfiguration
 import com.betterads.BetterAdsContentMode
@@ -20,6 +19,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
+import java.util.logging.Logger
 
 interface HttpClient {
     suspend fun send(request: HttpRequest): HttpResponse
@@ -69,6 +69,8 @@ internal class AdsApiClient(
     private val authProvider: BetterAdsAuthProviding? = null,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = false },
 ) {
+    private val logger = Logger.getLogger("com.betterads.AdsApiClient")
+
     suspend fun fetchAd(type: AdType): AdModel {
         val (path, query) = when (configuration.contentMode) {
             BetterAdsContentMode.BOOKIE_GET_AD ->
@@ -87,7 +89,7 @@ internal class AdsApiClient(
         }
 
         val request = makeRequest("GET", path, query)
-        Log.d("BetterAds", "GET ${request.url}")
+        logger.fine("GET ${request.url}")
         val response = httpClient.send(request)
         return when (response.code) {
             in 200..299 -> {
@@ -173,7 +175,7 @@ internal class AdsApiClient(
             "Accept-Language" to configuration.locale.toLanguageTag(),
         )
         if (configuration.apiKey.isNotEmpty()) {
-            headers["X-API-Key"] = configuration.apiKey
+            headers["X-Api-Key"] = configuration.apiKey
         }
         authProvider?.bearerAccessToken()?.takeIf { it.isNotEmpty() }?.let {
             headers["Authorization"] = "Bearer $it"

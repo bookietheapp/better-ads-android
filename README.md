@@ -13,14 +13,16 @@ Matches the iOS `BetterAds` Swift package API shape.
 | `BOOKIE_GET_AD` | Legacy: `GET /getAd?size={format}` — host `baseUrl` |
 | `DEDICATED_API` | Future: `GET /ads/{format}` — host `baseUrl` |
 
-## Formats (Bookie parity)
+## Formats (NativeOS Templates)
 
-| Format | Layout |
+| Format | Template 1x frame (logical dp) |
 |--------|--------|
-| `COMPACT` | Row: 50×53 hero, wordmark/headline, description, capsule CTA; “Ad” chip |
-| `BANNER` | Fixed height 164; left copy + 205×164 hero; “Ad” chip |
-| `CARD` | Vertical card with “Advertisement” chip |
-| `INTERSTITIAL` | Skipped (no UI) |
+| `COMPACT` | 329 × 51 hero image; “Ad” chip |
+| `BANNER` | 345 × 164 hero image; “Ad” chip |
+| `CARD` | 336 × 443 hero image; “Advertisement” chip |
+| `INTERSTITIAL` | Skipped (Serve has no interstitial template) |
+
+Serve returns a slim Design: `adId`, `campaignId`, `size`, `images.hero` (`1x` / `2x` / `3x`), and `ctaLink`. The SDK renders the hero as the entire ad and opens `ctaLink` on tap.
 
 ## Usage (spike / fixture)
 
@@ -68,9 +70,9 @@ The SDK owns `device_id` (persisted after `BetterAds.initialize`) and `session_i
 
 | Event | When |
 |-------|------|
-| Impression | Loaded creative appears — once per campaign (skipped in fixture mode) |
-| Click | CTA tapped → batched event POST when remote (skipped in fixture), then SDK opens |
-| Open | `URL` → Custom Tabs; `DEEPLINK` → `ACTION_VIEW` |
+| Impression | Loaded creative appears — once per `adId` (skipped in fixture mode) |
+| Click | Hero image tapped → batched event POST when remote (skipped in fixture), then SDK opens `ctaLink` |
+| Open | `http(s)` → Custom Tabs; otherwise `ACTION_VIEW` |
 
 Host `onClick` / `onImpression` are observation-only.
 

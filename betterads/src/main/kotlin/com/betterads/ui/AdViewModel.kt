@@ -50,7 +50,7 @@ class AdViewModel(
      *
      * Keeps the current creative visible while fetching (no flash).
      * Updates state only when the API returns a different payload.
-     * Resets impression eligibility when `campaignId` changes.
+     * Resets impression eligibility when `adId` changes.
      */
     suspend fun revalidate() {
         if (isRevalidating) return
@@ -94,19 +94,19 @@ class AdViewModel(
         if (state !is State.Loaded || didTrackImpression) return false
         val current = ad ?: return false
         didTrackImpression = true
-        client.trackImpression(current.campaignId)
+        client.trackImpression(current.adId)
         return true
     }
 
     fun handleClick(): AdCtaAction? {
         val current = ad ?: return null
-        client.trackClick(current.campaignId, current.cta.action.value)
-        return current.cta.action
+        client.trackClick(current.adId, current.ctaLink)
+        return current.ctaAction
     }
 
     private fun applyServeResult(previous: AdModel?, fresh: AdModel) {
         if (previous == fresh) return
-        if (previous?.campaignId != fresh.campaignId) {
+        if (previous?.adId != fresh.adId) {
             didTrackImpression = false
         }
         state = State.Loaded(fresh)
