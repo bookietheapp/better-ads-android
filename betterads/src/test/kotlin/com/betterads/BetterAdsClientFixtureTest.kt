@@ -112,6 +112,27 @@ class BetterAdsClientServeV1Test {
     }
 
     @Test
+    fun serveV1_includesIsTestEnvWhenEnabled() = runTest {
+        val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+                isTestEnv = true,
+            ),
+            httpClient = http,
+        )
+
+        client.fetchAd(AdFormat.BANNER)
+
+        assertEquals(
+            "${BetterAdsEndpoints.SERVE_V1_BASE_URL}/api/v1/serve?app=Bookie&size=banner&isTestEnv=true",
+            http.requests[0].url,
+        )
+    }
+
+    @Test
     fun serveV1_ignoresHostBaseUrl() = runTest {
         val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
         val client = BetterAdsClient(

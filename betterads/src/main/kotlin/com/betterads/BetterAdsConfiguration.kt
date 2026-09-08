@@ -50,6 +50,11 @@ data class BetterAdsConfiguration(
     /** Optional override. When null, the SDK persists an install-scoped device id. */
     val deviceId: String? = null,
     val locale: Locale = Locale.getDefault(),
+    /**
+     * When `true`, adds `isTestEnv=true` to Serve so NativeOS can return test-only ads.
+     * Host apps should set this only for debug / staging builds — never in production.
+     */
+    val isTestEnv: Boolean = false,
 ) {
     /** Resolved HTTP base URL for the active content mode. */
     internal fun resolvedBaseUrl(): String? = when (contentMode) {

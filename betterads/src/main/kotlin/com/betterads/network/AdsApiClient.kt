@@ -80,6 +80,9 @@ internal class AdsApiClient(
                 val items = linkedMapOf<String, String>()
                 configuration.appName?.takeIf { it.isNotEmpty() }?.let { items["app"] = it }
                 items["size"] = type.rawValue
+                if (configuration.isTestEnv) {
+                    items["isTestEnv"] = "true"
+                }
                 "/api/v1/serve" to items
             }
             BetterAdsContentMode.DEDICATED_API ->
