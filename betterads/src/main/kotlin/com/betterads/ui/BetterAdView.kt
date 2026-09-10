@@ -31,6 +31,8 @@ import com.betterads.model.AdModel
  * - Keeps the current creative on screen while fetching (no flash).
  * - The API decides whether to return the same or a new creative; UI swaps only
  *   when the payload changes.
+ * - Pass [externalAdId] for keyed Serve. A keyed miss renders nothing and reports
+ *   `onAvailabilityChanged(false)` — it does **not** fall back to unkeyed Serve.
  *
  * The SDK fetches, renders the hero image, tracks impression/click, and opens `ctaLink`.
  * Host callbacks are observation-only (e.g. Firebase bridge).
@@ -50,6 +52,7 @@ fun BetterAdView(
     format: AdFormat,
     modifier: Modifier = Modifier,
     client: BetterAdsClient? = null,
+    externalAdId: String? = null,
     onImpression: ((AdModel) -> Unit)? = null,
     onClick: ((AdCtaAction) -> Unit)? = null,
     /** `true` when a creative is shown; `false` when serve failed with no cached creative. */
@@ -63,6 +66,7 @@ fun BetterAdView(
     BetterAdContent(
         client = resolvedClient,
         format = format,
+        externalAdId = externalAdId,
         onImpression = onImpression,
         onClick = onClick,
         onAvailabilityChanged = onAvailabilityChanged,
@@ -74,19 +78,20 @@ fun BetterAdView(
 private fun BetterAdContent(
     client: BetterAdsClient,
     format: AdFormat,
+    externalAdId: String?,
     onImpression: ((AdModel) -> Unit)?,
     onClick: ((AdCtaAction) -> Unit)?,
     onAvailabilityChanged: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val viewModel = remember(client, format) {
-        AdViewModel.forFormat(client, format)
+    val viewModel = remember(client, format, externalAdId) {
+        AdViewModel.forFormat(client, format, externalAdId)
     }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // SDK-owned revalidation — host apps never pass refresh epochs.
-    LaunchedEffect(client, format) {
+    LaunchedEffect(client, format, externalAdId) {
         viewModel.revalidate()
     }
 

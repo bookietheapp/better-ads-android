@@ -9,7 +9,7 @@ Matches the iOS `BetterAds` Swift package API shape.
 | `BetterAdsContentMode` | Behavior |
 |------------------------|----------|
 | `FIXTURE` (**spike default**) | Built-in sample creatives, no network / no base URL / no auth |
-| `SERVE_V1` (**current remote**) | SDK-owned serve endpoint (`size` + optional `app=` via `appName` while unauthenticated) |
+| `SERVE_V1` (**current remote**) | SDK-owned serve endpoint (`size` + optional `app=` via `appName`, optional `externalAdId` for keyed Serve) |
 | `BOOKIE_GET_AD` | Legacy: `GET /getAd?size={format}` — host `baseUrl` |
 | `DEDICATED_API` | Future: `GET /ads/{format}` — host `baseUrl` |
 
@@ -65,6 +65,24 @@ client.setUserId(loggedInUserId) // or null when logged out / guest
 ```
 
 The SDK owns `device_id` (persisted after `BetterAds.initialize`) and `session_id` (rotates on logout when you clear user id). See [`docs/IDENTITY_AND_ANALYTICS.md`](../docs/IDENTITY_AND_ANALYTICS.md).
+
+### Keyed Serve (`externalAdId`)
+
+Unkeyed `BetterAdView(format = …)` still picks from ads **without** an External Ad Id.
+
+To fetch a specific Publisher-owned ad (for example Book of the Week), pass `externalAdId`. On keyed **404**, the SDK surfaces “no ad” and does **not** retry as unkeyed Serve. Impressions and clicks still use `adId` from the payload.
+
+```kotlin
+BetterAdView(
+    format = AdFormat.BANNER,
+    externalAdId = "book_of_the_week_de",
+)
+
+val ad = client.fetchAd(
+    format = AdFormat.BANNER,
+    externalAdId = "book_of_the_week_de",
+)
+```
 
 ### Tracking + CTA open (owned by the view)
 

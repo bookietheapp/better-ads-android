@@ -21,18 +21,18 @@ import java.util.Locale
 import java.util.logging.Logger
 
 internal fun interface BetterAdsContentProviding {
-    suspend fun fetchAd(format: AdFormat): AdModel
+    suspend fun fetchAd(format: AdFormat, externalAdId: String?): AdModel
 }
 
 internal class HttpBetterAdsContentProvider(
     private val api: AdsApiClient,
 ) : BetterAdsContentProviding {
-    override suspend fun fetchAd(format: AdFormat): AdModel =
-        api.fetchAd(AdType(format))
+    override suspend fun fetchAd(format: AdFormat, externalAdId: String?): AdModel =
+        api.fetchAd(AdType(format), externalAdId)
 }
 
 internal class FixtureBetterAdsContentProvider : BetterAdsContentProviding {
-    override suspend fun fetchAd(format: AdFormat): AdModel {
+    override suspend fun fetchAd(format: AdFormat, externalAdId: String?): AdModel {
         if (format == AdFormat.INTERSTITIAL) {
             throw BetterAdsError.UnknownAdType(AdType(format))
         }
@@ -107,21 +107,47 @@ class BetterAdsClient private constructor(
         identity.setUserId(userId)
     }
 
-    /** Last successfully fetched creative for [type], if any (process memory). */
-    internal fun cachedAd(type: AdType): AdModel? = adCache.ad(type)
+    /** Last successfully fetched creative for [type] + optional keyed id, if any (process memory). */
+    internal fun cachedAd(type: AdType, externalAdId: String? = null): AdModel? =
+        adCache.ad(type, externalAdId)
 
-    suspend fun fetchAd(type: AdType): AdModel {
-        val format = AdFormat.fromRaw(type.rawValue)
-        val ad = if (format != null) {
-            contentProvider.fetchAd(format)
-        } else {
-            api.fetchAd(type)
+    /**
+     * Fetches ad content for the given placement type.
+     *
+     * Pass [externalAdId] for keyed Serve. A keyed 404 is surfaced as
+     * [BetterAdsError.UnknownAdType] — the SDK does **not** retry as unkeyed Serve.
+     */
+    suspend fun fetchAd(type: AdType, externalAdId: String? = null): AdModel {
+        val keyedId = ExternalAdId.normalize(externalAdId)
+        return try {
+            val format = AdFormat.fromRaw(type.rawValue)
+            val ad = if (format != null) {
+                contentProvider.fetchAd(format, keyedId)
+            } else {
+                api.fetchAd(type, keyedId)
+            }
+            adCache.store(ad, type, keyedId)
+            ad
+        } catch (e: Exception) {
+            if (keyedId != null && isNoEligibleAd(e)) {
+                adCache.remove(type, keyedId)
+            }
+            throw e
         }
-        adCache.store(ad, type)
-        return ad
     }
 
-    suspend fun fetchAd(format: AdFormat): AdModel = fetchAd(AdType(format))
+    /**
+     * Fetches ad content for a known format.
+     *
+     * Pass [externalAdId] to request a specific Publisher-owned ad. On keyed miss the
+     * error is returned to the caller — do not fall back to unkeyed [fetchAd].
+     */
+    suspend fun fetchAd(format: AdFormat, externalAdId: String? = null): AdModel =
+        fetchAd(AdType(format), externalAdId)
+
+    /** Alias for [fetchAd]. */
+    suspend fun requestAd(format: AdFormat, externalAdId: String? = null): AdModel =
+        fetchAd(format, externalAdId)
 
     fun trackImpression(adId: String) {
         if (contentMode == BetterAdsContentMode.FIXTURE) return

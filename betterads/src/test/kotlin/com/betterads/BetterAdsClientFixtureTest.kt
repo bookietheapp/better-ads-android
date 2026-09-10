@@ -3,7 +3,9 @@ package com.betterads
 import com.betterads.model.AdEvent
 import com.betterads.model.AdEventType
 import com.betterads.model.AdFormat
+import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
+import com.betterads.ui.AdViewModel
 import com.betterads.network.HttpClient
 import com.betterads.network.HttpRequest
 import com.betterads.network.HttpResponse
@@ -109,6 +111,148 @@ class BetterAdsClientServeV1Test {
             http.requests[0].url,
         )
         assertEquals("future-key", http.requests[0].headers["X-Api-Key"])
+    }
+
+    @Test
+    fun serveV1_includesExternalAdIdWhenKeyed() = runTest {
+        val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+
+        client.fetchAd(AdFormat.BANNER, externalAdId = "book_of_the_week_de")
+
+        assertEquals(1, http.requests.size)
+        assertEquals(
+            "${BetterAdsEndpoints.SERVE_V1_BASE_URL}/api/v1/serve?app=Bookie&size=banner&externalAdId=book_of_the_week_de",
+            http.requests[0].url,
+        )
+    }
+
+    @Test
+    fun requestAd_isAliasForKeyedFetchAd() = runTest {
+        val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+
+        val ad = client.requestAd(AdFormat.BANNER, externalAdId = "book_of_the_week_de")
+        assertEquals("42", ad.adId)
+        assertTrue(http.requests[0].url.contains("externalAdId=book_of_the_week_de"))
+    }
+
+    @Test
+    fun serveV1_omitsBlankExternalAdId() = runTest {
+        val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+
+        client.fetchAd(AdFormat.BANNER, externalAdId = "  ")
+
+        assertEquals(
+            "${BetterAdsEndpoints.SERVE_V1_BASE_URL}/api/v1/serve?app=Bookie&size=banner",
+            http.requests[0].url,
+        )
+    }
+
+    @Test
+    fun keyed404_doesNotRetryUnkeyed() = runTest {
+        val http = RecordingHttpClient(HttpResponse(404, """{"error":"not_found"}""".toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+
+        try {
+            client.fetchAd(AdFormat.BANNER, externalAdId = "book_of_the_week_de")
+            error("expected keyed miss")
+        } catch (e: BetterAdsError.UnknownAdType) {
+            assertEquals("banner", e.type.rawValue)
+        }
+
+        assertEquals(1, http.requests.size)
+        assertTrue(http.requests[0].url.contains("externalAdId=book_of_the_week_de"))
+    }
+
+    @Test
+    fun keyedAndUnkeyedUseSeparateCacheSlots() = runTest {
+        val http = RecordingHttpClient(
+            HttpResponse(200, sampleAdJson.toByteArray()),
+            HttpResponse(200, sampleAdJson.toByteArray()),
+            HttpResponse(404, """{"error":"not_found"}""".toByteArray()),
+        )
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+
+        client.fetchAd(AdFormat.BANNER)
+        client.fetchAd(AdFormat.BANNER, externalAdId = "book_of_the_week_de")
+        assertTrue(client.cachedAd(AdType(AdFormat.BANNER)) != null)
+        assertTrue(client.cachedAd(AdType(AdFormat.BANNER), "book_of_the_week_de") != null)
+
+        try {
+            client.fetchAd(AdFormat.BANNER, externalAdId = "book_of_the_week_de")
+            error("expected keyed miss")
+        } catch (_: BetterAdsError.UnknownAdType) {
+            // expected
+        }
+
+        assertTrue(client.cachedAd(AdType(AdFormat.BANNER)) != null)
+        assertNull(client.cachedAd(AdType(AdFormat.BANNER), "book_of_the_week_de"))
+    }
+
+    @Test
+    fun keyedMiss_failsEvenWhenPreviousCreativeWasShowing() = runTest {
+        val http = RecordingHttpClient(
+            HttpResponse(200, sampleAdJson.toByteArray()),
+            HttpResponse(404, """{"error":"not_found"}""".toByteArray()),
+        )
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+        val viewModel = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            externalAdId = "book_of_the_week_de",
+        )
+
+        viewModel.loadIfNeeded()
+        assertTrue(viewModel.state is AdViewModel.State.Loaded)
+
+        viewModel.revalidate()
+        assertTrue(viewModel.state is AdViewModel.State.Failed)
+        assertEquals(2, http.requests.size)
+        assertTrue(http.requests.all { it.url.contains("externalAdId=book_of_the_week_de") })
     }
 
     @Test

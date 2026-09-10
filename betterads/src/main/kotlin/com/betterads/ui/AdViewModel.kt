@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.betterads.BetterAdsClient
+import com.betterads.ExternalAdId
+import com.betterads.isNoEligibleAd
 import com.betterads.model.AdCtaAction
 import com.betterads.model.AdFormat
 import com.betterads.model.AdModel
@@ -22,7 +24,9 @@ class AdViewModel(
     private val client: BetterAdsClient,
     private val type: AdType,
     preloadedAd: AdModel? = null,
+    externalAdId: String? = null,
 ) {
+    private val externalAdId: String? = ExternalAdId.normalize(externalAdId)
     sealed interface State {
         data object Idle : State
         data object Loading : State
@@ -34,7 +38,7 @@ class AdViewModel(
         when {
             preloadedAd != null -> State.Loaded(preloadedAd)
             // Paint cached creative immediately so remounts don't flash a blank loading slot.
-            else -> client.cachedAd(type)?.let { State.Loaded(it) } ?: State.Idle
+            else -> client.cachedAd(type, this.externalAdId)?.let { State.Loaded(it) } ?: State.Idle
         },
     )
         private set
@@ -64,11 +68,11 @@ class AdViewModel(
             }
 
             try {
-                applyServeResult(previous = previous, fresh = client.fetchAd(type))
+                applyServeResult(previous = previous, fresh = client.fetchAd(type, externalAdId))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Lazy lists may cancel after fetch; creative is still in the client cache.
                 if (!hadContent) {
-                    client.cachedAd(type)?.let { cached ->
+                    client.cachedAd(type, externalAdId)?.let { cached ->
                         state = State.Loaded(cached)
                     } ?: run {
                         state = State.Idle
@@ -76,8 +80,12 @@ class AdViewModel(
                 }
                 throw e
             } catch (e: Exception) {
-                if (!hadContent) {
-                    val message = (e as? BetterAdsError)?.message ?: e.message ?: e.toString()
+                val message = (e as? BetterAdsError)?.message ?: e.message ?: e.toString()
+                // Keyed 404 is a definitive miss — hide the slot. Do not keep a previous
+                // creative and do not retry as unkeyed Serve.
+                if (externalAdId != null && isNoEligibleAd(e)) {
+                    state = State.Failed(message)
+                } else if (!hadContent) {
                     state = State.Failed(message)
                 }
             }
@@ -113,7 +121,10 @@ class AdViewModel(
     }
 
     companion object {
-        fun forFormat(client: BetterAdsClient, format: AdFormat): AdViewModel =
-            AdViewModel(client = client, type = AdType(format))
+        fun forFormat(
+            client: BetterAdsClient,
+            format: AdFormat,
+            externalAdId: String? = null,
+        ): AdViewModel = AdViewModel(client = client, type = AdType(format), externalAdId = externalAdId)
     }
 }

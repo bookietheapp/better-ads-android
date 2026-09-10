@@ -5,6 +5,7 @@ import com.betterads.BetterAdsConfiguration
 import com.betterads.BetterAdsContentMode
 import com.betterads.BetterAdsEndpoints
 import com.betterads.BetterAdsIdentityStore
+import com.betterads.ExternalAdId
 import com.betterads.model.AdEvent
 import com.betterads.model.AdModel
 import com.betterads.model.AdType
@@ -71,7 +72,8 @@ internal class AdsApiClient(
 ) {
     private val logger = Logger.getLogger("com.betterads.AdsApiClient")
 
-    suspend fun fetchAd(type: AdType): AdModel {
+    suspend fun fetchAd(type: AdType, externalAdId: String? = null): AdModel {
+        val keyedId = ExternalAdId.normalize(externalAdId)
         val (path, query) = when (configuration.contentMode) {
             BetterAdsContentMode.BOOKIE_GET_AD ->
                 "/getAd" to mapOf("size" to type.rawValue)
@@ -80,6 +82,9 @@ internal class AdsApiClient(
                 val items = linkedMapOf<String, String>()
                 configuration.appName?.takeIf { it.isNotEmpty() }?.let { items["app"] = it }
                 items["size"] = type.rawValue
+                if (keyedId != null) {
+                    items["externalAdId"] = keyedId
+                }
                 if (configuration.isTestEnv) {
                     items["isTestEnv"] = "true"
                 }

@@ -13,7 +13,7 @@ enum class BetterAdsContentMode {
     /** Interim: `GET /getAd?size={format}`. */
     BOOKIE_GET_AD,
 
-    /** Current ads backend: `GET /api/v1/serve?size={format}` (+ optional `app=` while unauthenticated). */
+    /** Current ads backend: `GET /api/v1/serve?size={format}` (+ optional `app=` / `externalAdId=`). */
     SERVE_V1,
 
     /** Future dedicated ads API: `GET /ads/{format}`. */
