@@ -1,8 +1,5 @@
 package com.betterads.ui
 
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -128,11 +125,7 @@ private fun BetterAdContent(
 
     when (val state = viewModel.state) {
         AdViewModel.State.Idle, AdViewModel.State.Loading -> {
-            Spacer(
-                modifier = modifier
-                    .fillMaxWidth()
-                    .heightIn(min = AdLayoutMetrics.loadingPlaceholderMinHeight(format)),
-            )
+            AdSkeleton(format = format, modifier = modifier)
         }
 
         is AdViewModel.State.Failed -> {
@@ -169,4 +162,10 @@ private fun BetterAdViewPreview() {
     ProvideBetterAdsClient(BetterAdsClient.fixture(apiKey = "preview")) {
         BetterAdView(format = AdFormat.BANNER)
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun AdSkeletonPreview() {
+    AdSkeleton(format = AdFormat.BANNER)
 }

@@ -9,8 +9,11 @@ import com.betterads.model.AdFormat
 object AdLayoutMetrics {
     val advertisementLabelInset: Dp = 8.dp
     val advertisementLabelCornerRadius: Dp = 4.dp
-    const val advertisementLabelBackgroundOpacity = 0.72f
+    val advertisementLabelBackgroundOpacity = 0.72f
     val cornerRadius: Dp = 12.dp
+    const val skeletonFillOpacity = 0.10f
+    const val skeletonPulseOpacity = 0.55f
+    const val skeletonPulseDurationMs = 900
 
     /** NativeOS Template 1x frames (logical dp). */
     fun templateSize(format: AdFormat): DpSize = when (format) {
@@ -20,7 +23,7 @@ object AdLayoutMetrics {
             AdFormat.INTERSTITIAL -> DpSize(0.dp, 0.dp)
     }
 
-    /** Keeps lazy host lists from skipping the slot before serve completes. */
+    /** Template-sized skeleton while Serve is in flight so the slot stays visible. */
     fun loadingPlaceholderMinHeight(format: AdFormat): Dp = templateSize(format).height
 
     fun advertisementLabelStyle(format: AdFormat): AdAdvertisementLabelStyle =

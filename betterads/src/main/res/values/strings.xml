@@ -2,4 +2,5 @@
 <resources>
     <string name="better_ads_advertisement">Advertisement</string>
     <string name="better_ads_advertisement_short">Ad</string>
+    <string name="better_ads_loading_advertisement">Loading advertisement</string>
 </resources>

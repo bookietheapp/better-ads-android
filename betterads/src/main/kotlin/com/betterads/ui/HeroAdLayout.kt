@@ -43,6 +43,7 @@ fun HeroAdLayout(
                 size = DpSize(frame.width, frame.height),
                 contentDescription = disclosure,
                 contentScale = ContentScale.Crop,
+                placeholder = { AdSkeletonFill() },
             )
             AdAdvertisementLabel(
                 style = AdLayoutMetrics.advertisementLabelStyle(format),
