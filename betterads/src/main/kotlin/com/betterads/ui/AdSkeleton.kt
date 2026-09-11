@@ -10,9 +10,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,36 +30,31 @@ import com.betterads.R
 import com.betterads.model.AdFormat
 
 /**
- * Template-sized placeholder shown while Serve is in flight.
+ * Template-shaped placeholder shown while Serve is in flight.
  *
- * Matches the loaded hero frame (size, corner radius, Ad chip) so the slot does
- * not collapse or flash empty. Motion is a gentle pulse.
+ * Matches the loaded hero frame (width, aspect ratio, corner radius, Ad chip) so the
+ * slot does not collapse, flash empty, or resize when the creative arrives. Motion is
+ * a gentle pulse.
  */
 @Composable
 fun AdSkeleton(
     format: AdFormat,
     modifier: Modifier = Modifier,
 ) {
-    val frame = AdLayoutMetrics.templateSize(format)
     val loading = stringResource(R.string.better_ads_loading_advertisement)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .aspectRatio(AdLayoutMetrics.templateAspectRatio(format))
+            .clip(RoundedCornerShape(AdLayoutMetrics.cornerRadius))
             .semantics { contentDescription = loading },
-        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(frame.width, frame.height)
-                .clip(RoundedCornerShape(AdLayoutMetrics.cornerRadius)),
-        ) {
-            AdSkeletonFill()
-            AdAdvertisementLabel(
-                style = AdLayoutMetrics.advertisementLabelStyle(format),
-                modifier = Modifier.align(Alignment.TopEnd),
-            )
-        }
+        AdSkeletonFill()
+        AdAdvertisementLabel(
+            style = AdLayoutMetrics.advertisementLabelStyle(format),
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
     }
 }
 

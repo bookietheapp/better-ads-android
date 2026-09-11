@@ -1,13 +1,11 @@
 package com.betterads.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.DpSize
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -17,7 +15,6 @@ import com.betterads.model.AdImageUrls
 @Composable
 fun AdRemoteImage(
     urls: AdImageUrls,
-    size: DpSize,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
     contentScale: ContentScale = ContentScale.Crop,
@@ -26,7 +23,7 @@ fun AdRemoteImage(
     val density = LocalDensity.current.density
     val url = urls.urlFor(density)
     if (url.isNullOrBlank()) {
-        Box(modifier = modifier.size(size)) { placeholder() }
+        Box(modifier = modifier) { placeholder() }
         return
     }
 
@@ -39,7 +36,7 @@ fun AdRemoteImage(
             .build(),
         contentDescription = contentDescription,
         contentScale = contentScale,
-        modifier = modifier.size(size),
+        modifier = modifier,
     ) {
         when (painter.state) {
             is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
