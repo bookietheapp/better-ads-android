@@ -57,6 +57,7 @@ class BetterAdsClient private constructor(
     private val adCache: AdResponseCache = AdResponseCache(),
 ) {
     private val logger = Logger.getLogger("com.betterads.BetterAdsClient")
+    internal val impressionLedger = AdImpressionLedger()
 
     constructor(
         configuration: BetterAdsConfiguration,
@@ -107,6 +108,18 @@ class BetterAdsClient private constructor(
         identity.setUserId(userId)
     }
 
+    /**
+     * Allows every placement to impress again after a **new screen visit**
+     * (tab selected, pull-to-refresh, opening search).
+     *
+     * Scroll off/on does **not** need this — the SDK already ignores list recycle.
+     * Call it from screen-level visit hooks when rows may have been disposed.
+     */
+    fun resetImpressionSession() {
+        impressionLedger.clear()
+        AdLog.i("impression session reset (client)")
+    }
+
     /** Last successfully fetched creative for [type] + optional keyed id, if any (process memory). */
     internal fun cachedAd(type: AdType, externalAdId: String? = null): AdModel? =
         adCache.ad(type, externalAdId)
@@ -150,12 +163,17 @@ class BetterAdsClient private constructor(
         fetchAd(format, externalAdId)
 
     fun trackImpression(adId: String) {
-        if (contentMode == BetterAdsContentMode.FIXTURE) return
+        if (contentMode == BetterAdsContentMode.FIXTURE) {
+            AdLog.i("impression skipped fixture adId=$adId")
+            return
+        }
         val adIdInt = parseAdId(adId)
         if (adIdInt == null) {
             logger.warning("Skipping impression — invalid ad_id: $adId")
+            AdLog.w("impression skipped invalid adId=$adId")
             return
         }
+        AdLog.i("impression queued adId=$adIdInt")
         val id = identity.snapshot()
         eventQueue.enqueue(
             AdEvent(
@@ -170,12 +188,17 @@ class BetterAdsClient private constructor(
     }
 
     fun trackClick(adId: String, ctaValue: String) {
-        if (contentMode == BetterAdsContentMode.FIXTURE) return
+        if (contentMode == BetterAdsContentMode.FIXTURE) {
+            AdLog.i("click skipped fixture adId=$adId")
+            return
+        }
         val adIdInt = parseAdId(adId)
         if (adIdInt == null) {
             logger.warning("Skipping click — invalid ad_id: $adId")
+            AdLog.w("click skipped invalid adId=$adId")
             return
         }
+        AdLog.i("click queued adId=$adIdInt")
         val id = identity.snapshot()
         eventQueue.enqueue(
             AdEvent(

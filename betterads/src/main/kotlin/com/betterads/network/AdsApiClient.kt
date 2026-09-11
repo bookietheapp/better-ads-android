@@ -1,5 +1,6 @@
 package com.betterads.network
 
+import com.betterads.AdLog
 import com.betterads.BetterAdsAuthProviding
 import com.betterads.BetterAdsConfiguration
 import com.betterads.BetterAdsContentMode
@@ -97,21 +98,28 @@ internal class AdsApiClient(
         }
 
         val request = makeRequest("GET", path, query)
-        logger.fine("GET ${request.url}")
+        AdLog.i("GET ${request.url}")
         val response = httpClient.send(request)
         return when (response.code) {
             in 200..299 -> {
                 try {
-                    json.decodeFromString(AdModel.serializer(), response.body.decodeToString())
+                    val ad = json.decodeFromString(AdModel.serializer(), response.body.decodeToString())
+                    AdLog.i("serve ${response.code} adId=${ad.adId} size=${ad.size}")
+                    ad
                 } catch (e: Exception) {
+                    AdLog.w("serve decode failed: ${e.message}")
                     throw BetterAdsError.DecodingFailed(e.message ?: e.toString())
                 }
             }
-            404 -> throw BetterAdsError.UnknownAdType(type)
-            else -> throw BetterAdsError.HttpStatus(
-                response.code,
-                response.body.decodeToString().ifBlank { null },
-            )
+            404 -> {
+                AdLog.i("serve 404 no ad size=${type.rawValue} externalAdId=${keyedId ?: "-"}")
+                throw BetterAdsError.UnknownAdType(type)
+            }
+            else -> {
+                val body = response.body.decodeToString().ifBlank { null }
+                AdLog.w("serve ${response.code} size=${type.rawValue} body=$body")
+                throw BetterAdsError.HttpStatus(response.code, body)
+            }
         }
     }
 

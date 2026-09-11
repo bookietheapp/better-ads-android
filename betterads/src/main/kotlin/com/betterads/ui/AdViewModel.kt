@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.betterads.BetterAdsClient
+import com.betterads.AdLog
+import com.betterads.AdResponseCache
 import com.betterads.ExternalAdId
 import com.betterads.isNoEligibleAd
 import com.betterads.model.AdCtaAction
@@ -16,9 +18,9 @@ import com.betterads.model.BetterAdsError
  * Loads ad content and owns impression / click reporting for a single placement.
  * Matches iOS `AdViewModel`.
  *
- * Creative selection is owned by the serve API: revalidate on appear / host surface
- * refresh, keep the current creative while fetching, and only swap UI when the
- * payload changes.
+ * Creative selection is owned by the serve API: load once, revalidate only when
+ * the host starts a new screen session, keep the current creative while fetching,
+ * and only swap UI when the payload changes.
  */
 class AdViewModel(
     private val client: BetterAdsClient,
@@ -48,6 +50,19 @@ class AdViewModel(
 
     val ad: AdModel?
         get() = (state as? State.Loaded)?.ad
+
+    private fun placementIdentity(): String = AdResponseCache.key(type, externalAdId)
+
+    /**
+     * Fetches only when this slot has nothing to show. Scroll off/on and lazy
+     * remounts reuse the cached creative — they do not hit Serve again.
+     */
+    suspend fun loadIfNeeded() {
+        when (state) {
+            is State.Loaded, is State.Failed -> return
+            State.Idle, State.Loading -> revalidate()
+        }
+    }
 
     /**
      * Asks the serve API whether this slot should keep or replace its creative.
@@ -94,20 +109,34 @@ class AdViewModel(
         }
     }
 
-    /** Backward-compatible alias used by older call sites / tests. */
-    suspend fun loadIfNeeded() = revalidate()
-
-    /** @return true when an impression was newly tracked. */
-    fun trackImpressionIfNeeded(): Boolean {
-        if (state !is State.Loaded || didTrackImpression) return false
+    /**
+     * Called after Bookie-parity viewability (50% + 200 ms dwell). Fires at most
+     * once per `adId` per host screen session, even if the placement remounts.
+     * @return true when an impression was newly tracked.
+     */
+    fun trackImpressionIfNeeded(sessionId: String? = null): Boolean {
         val current = ad ?: return false
+        if (state !is State.Loaded) return false
+        if (!client.impressionLedger.consume(placementIdentity(), current.adId)) {
+            AdLog.i("impression skipped already recorded adId=${current.adId} size=${type.rawValue}")
+            return false
+        }
         didTrackImpression = true
+        AdLog.i("impression adId=${current.adId} size=${type.rawValue}")
         client.trackImpression(current.adId)
         return true
     }
 
+    /** Allows another impression after the host starts a new screen session. */
+    fun resetImpressionEligibility() {
+        ad?.let { client.impressionLedger.release(placementIdentity(), it.adId) }
+        didTrackImpression = false
+        AdLog.i("impression session reset size=${type.rawValue}")
+    }
+
     fun handleClick(): AdCtaAction? {
         val current = ad ?: return null
+        AdLog.i("click adId=${current.adId} cta=${current.ctaLink}")
         client.trackClick(current.adId, current.ctaLink)
         return current.ctaAction
     }

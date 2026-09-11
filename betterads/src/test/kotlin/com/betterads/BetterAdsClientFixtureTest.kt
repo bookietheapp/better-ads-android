@@ -3,6 +3,7 @@ package com.betterads
 import com.betterads.model.AdEvent
 import com.betterads.model.AdEventType
 import com.betterads.model.AdFormat
+import com.betterads.model.AdModel
 import com.betterads.model.AdType
 import com.betterads.model.BetterAdsError
 import com.betterads.ui.AdViewModel
@@ -47,6 +48,58 @@ class BetterAdsClientFixtureTest {
         val client = BetterAdsClient.fixture(apiKey = "ba_test_key")
         client.trackImpression("42")
         client.trackClick("42", "https://example.com")
+    }
+}
+
+class AdViewModelImpressionTest {
+    @Test
+    fun resetImpressionEligibility_allowsSecondTrack() {
+        val client = BetterAdsClient.fixture(apiKey = "test")
+        val viewModel = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            preloadedAd = AdModel.previewFixture(AdFormat.BANNER),
+        )
+        assertTrue(viewModel.trackImpressionIfNeeded("explore-1"))
+        assertFalse(viewModel.trackImpressionIfNeeded("explore-1"))
+        viewModel.resetImpressionEligibility()
+        assertTrue(viewModel.trackImpressionIfNeeded("explore-1"))
+    }
+
+    @Test
+    fun remountedViewModel_sameSessionDoesNotRefire() {
+        val client = BetterAdsClient.fixture(apiKey = "test")
+        val first = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            preloadedAd = AdModel.previewFixture(AdFormat.BANNER),
+        )
+        assertTrue(first.trackImpressionIfNeeded("explore-1"))
+        val remounted = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            preloadedAd = AdModel.previewFixture(AdFormat.BANNER),
+        )
+        assertFalse(remounted.trackImpressionIfNeeded("explore-1"))
+    }
+
+    @Test
+    fun remountedViewModel_newRememberUuidDoesNotRefire() {
+        val client = BetterAdsClient.fixture(apiKey = "test")
+        val first = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            preloadedAd = AdModel.previewFixture(AdFormat.BANNER),
+        )
+        assertTrue(first.trackImpressionIfNeeded("uuid-from-first-compose"))
+        val remounted = AdViewModel(
+            client = client,
+            type = AdType(AdFormat.BANNER),
+            preloadedAd = AdModel.previewFixture(AdFormat.BANNER),
+        )
+        assertFalse(remounted.trackImpressionIfNeeded("uuid-from-second-compose"))
+        client.resetImpressionSession()
+        assertTrue(remounted.trackImpressionIfNeeded("uuid-from-second-compose"))
     }
 }
 
@@ -253,6 +306,25 @@ class BetterAdsClientServeV1Test {
         assertTrue(viewModel.state is AdViewModel.State.Failed)
         assertEquals(2, http.requests.size)
         assertTrue(http.requests.all { it.url.contains("externalAdId=book_of_the_week_de") })
+    }
+
+    @Test
+    fun loadIfNeeded_doesNotRefetchWhenAlreadyLoaded() = runTest {
+        val http = RecordingHttpClient(HttpResponse(200, sampleAdJson.toByteArray()))
+        val client = BetterAdsClient(
+            configuration = BetterAdsConfiguration(
+                apiKey = "nos_test",
+                contentMode = BetterAdsContentMode.SERVE_V1,
+                appName = "Bookie",
+            ),
+            httpClient = http,
+        )
+        val viewModel = AdViewModel(client = client, type = AdType(AdFormat.BANNER))
+
+        viewModel.loadIfNeeded()
+        viewModel.loadIfNeeded()
+
+        assertEquals(1, http.requests.size)
     }
 
     @Test

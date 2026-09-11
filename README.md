@@ -84,11 +84,32 @@ val ad = client.fetchAd(
 )
 ```
 
+## Impressions
+
+The SDK owns viewability and counting. Hosts only place `BetterAdView`.
+
+An impression fires when ≥ 50% of the **whole ad view** intersects the safe viewport for ≥ 200 ms, scroll is calm (≤ 1200 pt/s vertical), 350 ms layout warmup has elapsed, and the app is in the foreground. Fixture mode skips the events POST.
+
+**Scroll / list recycle — no host work.** Lazy lists dispose rows. The SDK latches once per placement + `adId` on the client, so scrolling the slot off and back does **not** send another impression. Do not create a new UUID inside the row (`remember` on the item) as a way to start a new session — the SDK ignores that for counting.
+
+**New screen visit / pull-to-refresh — optional.** To allow the same placement to impress again, call `resetImpressionSession()` on the shared client from a **screen-level** hook (tab selected, pull-to-refresh, search opened). That works even if the ad row was recycled.
+
+Alternatively, pass `impressionSessionId` owned **above** the list and change it on that visit. A still-composed `BetterAdView` re-arms when the value changes.
+
+Omit both if one impression per placement per process is enough.
+
+```kotlin
+// When the screen session starts (visit / PTR)
+client.resetImpressionSession()
+
+BetterAdView(format = AdFormat.BANNER)
+```
+
 ### Tracking + CTA open (owned by the view)
 
 | Event | When |
 |-------|------|
-| Impression | Loaded creative appears — once per `adId` (skipped in fixture mode) |
+| Impression | ≥ 50% of the loaded creative is on screen for ≥ 200 ms (calm scroll) — once per placement + `adId` until `resetImpressionSession()` or a live `impressionSessionId` change (skipped in fixture mode) |
 | Click | Hero image tapped → batched event POST when remote (skipped in fixture), then SDK opens `ctaLink` |
 | Open | `http(s)` → Custom Tabs; otherwise `ACTION_VIEW` |
 

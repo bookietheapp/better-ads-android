@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -23,9 +26,10 @@ import com.betterads.model.AdModel
  * Ready-to-display ad view for Bookie-parity formats (`compact` / `banner` / `card`).
  *
  * Lifecycle (all owned by the SDK — hosts only place this composable):
- * - Revalidates with the serve API when the slot is in a STARTED lifecycle (first show
- *   and returning to the screen). No host refresh tokens.
- * - Keeps the current creative on screen while fetching (no flash).
+ * - Loads from Serve on first display (or from the in-memory cache on remount).
+ * - Revalidates only when the host screen session changes (pull-to-refresh / new visit).
+ * - Scrolling the slot off and back does **not** refetch or show the skeleton again.
+ * - Keeps the current creative on screen while a session revalidate is in flight.
  * - The API decides whether to return the same or a new creative; UI swaps only
  *   when the payload changes.
  * - Pass [externalAdId] for keyed Serve. A keyed miss renders nothing and reports
@@ -54,6 +58,18 @@ fun BetterAdView(
     onClick: ((AdCtaAction) -> Unit)? = null,
     /** `true` when a creative is shown; `false` when serve failed with no cached creative. */
     onAvailabilityChanged: ((Boolean) -> Unit)? = null,
+    /**
+     * Host screen-session token. Optional.
+     *
+     * The SDK already counts at most one impression per placement + ad id across
+     * list recycle. Changing this value on a **still-composed** view re-arms
+     * that placement (pull-to-refresh / new visit while the row is on screen).
+     * A new UUID created inside a lazy item is ignored for counting.
+     *
+     * To re-arm after rows were disposed, call [BetterAdsClient.resetImpressionSession]
+     * from the screen visit hook instead of minting per-row ids.
+     */
+    impressionSessionId: String? = null,
 ) {
     val resolvedClient = client ?: LocalBetterAdsClient.current
     if (resolvedClient == null) {
@@ -67,6 +83,7 @@ fun BetterAdView(
         onImpression = onImpression,
         onClick = onClick,
         onAvailabilityChanged = onAvailabilityChanged,
+        impressionSessionId = impressionSessionId,
         modifier = modifier,
     )
 }
@@ -79,6 +96,7 @@ private fun BetterAdContent(
     onImpression: ((AdModel) -> Unit)?,
     onClick: ((AdCtaAction) -> Unit)?,
     onAvailabilityChanged: ((Boolean) -> Unit)?,
+    impressionSessionId: String?,
     modifier: Modifier = Modifier,
 ) {
     val viewModel = remember(client, format, externalAdId) {
@@ -86,28 +104,37 @@ private fun BetterAdContent(
     }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var lastImpressionSessionId by remember { mutableStateOf(impressionSessionId) }
 
-    // SDK-owned revalidation — host apps never pass refresh epochs.
+    // First display only. Lazy lists dispose this composable when the row leaves
+    // the window — `loadIfNeeded` must not refetch a cached creative.
     LaunchedEffect(client, format, externalAdId) {
-        viewModel.revalidate()
+        viewModel.loadIfNeeded()
+    }
+
+    LaunchedEffect(impressionSessionId) {
+        if (lastImpressionSessionId != impressionSessionId) {
+            viewModel.resetImpressionEligibility()
+            viewModel.revalidate()
+            lastImpressionSessionId = impressionSessionId
+        }
     }
 
     LaunchedEffect(viewModel.state, lifecycleOwner) {
         if (viewModel.state is AdViewModel.State.Idle &&
             lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
         ) {
-            viewModel.revalidate()
+            viewModel.loadIfNeeded()
         }
     }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START &&
-                viewModel.state !is AdViewModel.State.Loaded &&
-                viewModel.state !is AdViewModel.State.Failed
+                viewModel.state is AdViewModel.State.Idle
             ) {
                 lifecycleOwner.lifecycleScope.launch {
-                    viewModel.revalidate()
+                    viewModel.loadIfNeeded()
                 }
             }
         }
@@ -133,12 +160,6 @@ private fun BetterAdContent(
         }
 
         is AdViewModel.State.Loaded -> {
-            LaunchedEffect(state.ad) {
-                if (viewModel.trackImpressionIfNeeded()) {
-                    onImpression?.invoke(state.ad)
-                }
-            }
-
             val handleCta = {
                 val action = viewModel.handleClick()
                 if (action != null) {
@@ -149,7 +170,18 @@ private fun BetterAdContent(
 
             when (format) {
                 AdFormat.COMPACT, AdFormat.BANNER, AdFormat.CARD ->
-                    HeroAdLayout(ad = state.ad, format = format, onCta = handleCta, modifier = modifier)
+                    HeroAdLayout(
+                        ad = state.ad,
+                        format = format,
+                        onCta = handleCta,
+                        modifier = modifier.reportWhenAdVisible(
+                            trackingKey = "${impressionSessionId.orEmpty()}|${state.ad.adId}",
+                        ) {
+                            if (viewModel.trackImpressionIfNeeded(impressionSessionId)) {
+                                onImpression?.invoke(state.ad)
+                            }
+                        },
+                    )
                 AdFormat.INTERSTITIAL -> Unit
             }
         }
